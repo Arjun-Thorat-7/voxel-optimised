@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Voxel Creative — iPhone Fast</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;touch-action:none;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;inset:0;color:#fff;text-shadow:0 2px 4px #000;pointer-events:none}
+#info{position:absolute;top:max(9px,env(safe-area-inset-top));left:10px;font-size:12px;line-height:1.35}
+#cross{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:22px}
+#bar{position:fixed;left:50%;bottom:max(8px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:3px;pointer-events:auto;max-width:96vw}
+.slot{width:35px;height:35px;line-height:35px;text-align:center;border:2px solid #555;background:#111b;border-radius:5px;font-size:8px;color:#fff}
+.slot.sel{border-color:#fff;box-shadow:0 0 6px #fff}
+#joy{position:fixed;left:18px;bottom:82px;width:112px;height:112px;border:2px solid #fff4;border-radius:50%;background:#fff1;pointer-events:auto}
+#stick{position:absolute;left:30px;top:30px;width:48px;height:48px;border-radius:50%;background:#fffa}
+#buttons{position:fixed;right:13px;bottom:80px;display:grid;grid-template-columns:58px 58px;gap:7px;pointer-events:auto}
+button{height:52px;border:1px solid #fff6;border-radius:13px;background:#1624;color:#fff;font-weight:700}
+#start{position:fixed;inset:0;z-index:5;background:#06101eee;display:grid;place-items:center;text-align:center}
+#start button{height:auto;padding:16px 22px;font-size:18px}
+#start p{color:#ddd;font-size:12px;margin-top:10px}
+</style>
+</head>
+<body>
+<div id="hud">
+  <div id="info">VOXEL CREATIVE • <span id="fps">--</span> FPS<br>Fast renderer • landscape recommended</div>
+  <div id="cross">+</div>
+</div>
+<div id="joy"><div id="stick"></div></div>
+<div id="buttons">
+  <button id="up">▲</button><button id="down">▼</button>
+  <button id="break">BREAK</button><button id="place">PLACE</button>
+</div>
+<div id="bar"></div>
+<div id="start"><div><button id="go">ENTER CREATIVE WORLD</button><p>Optimized for iPhone 17 Pro</p></div></div>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x86cdf2);
+scene.fog=new THREE.Fog(0x86cdf2,70,180);
+
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.08,300);
+camera.position.set(0,24,35);
+camera.rotation.order="YXZ";
+
+const renderer=new THREE.WebGLRenderer({
+  antialias:false,
+  powerPreference:"high-performance",
+  stencil:false,
+  depth:true
+});
+renderer.setPixelRatio(1);
+renderer.setSize(innerWidth,innerHeight,false);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.08;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xd8f3ff,0x405037,1.65));
+const sun=new THREE.DirectionalLight(0xffefc8,1.45);
+sun.position.set(-80,140,60);
+scene.add(sun);
+
+const TYPES=[
+ {n:"Grass",c:[.33,.64,.25]},
+ {n:"Dirt",c:[.49,.31,.18]},
+ {n:"Stone",c:[.46,.48,.50]},
+ {n:"Sand",c:[.78,.69,.43]},
+ {n:"Wood",c:[.48,.29,.12]},
+ {n:"Leaves",c:[.18,.52,.24]},
+ {n:"Snow",c:[.90,.94,.96]},
+ {n:"Glass",c:[.55,.78,.92]},
+ {n:"Glow",c:[1.00,.72,.20]}
+];
+
+const SIZE=64, HALF=SIZE>>1, H=28;
+const blocks=new Uint8Array(SIZE*H*SIZE);
+const idx=(x,y,z)=>((y*SIZE+z)*SIZE+x);
+const inside=(x,y,z)=>x>=0&&x<SIZE&&y>=0&&y<H&&z>=0&&z<SIZE;
+const get=(x,y,z)=>inside(x,y,z)?blocks[idx(x,y,z)]:0;
+
+function terrainHeight(x,z){
+  const a=Math.sin(x*.11)*2.3;
+  const b=Math.cos(z*.095)*2.0;
+  const c=Math.sin((x+z)*.055)*2.7;
+  const d=Math.cos((x-z)*.08)*1.5;
+  return Math.max(2,Math.min(H-2,Math.floor(9+a+b+c+d)));
+}
+
+for(let x=0;x<SIZE;x++)for(let z=0;z<SIZE;z++){
+  const h=terrainHeight(x,z);
+  const v=Math.sin(x*.035)+Math.cos(z*.041);
+  const top=v>1.0?3:0; // sand or grass
+  for(let y=0;y<=h;y++){
+    let t=2;
+    if(y===h)t=top;
+    else if(y>=h-2)t=top===3?3:1;
+    blocks[idx(x,y,z)]=t+1; // 1..9
+  }
+}
+
+// A few trees, kept sparse for performance.
+for(let x=4;x<SIZE-4;x+=8)for(let z=4;z<SIZE-4;z+=9){
+  if((x*13+z*7)%5!==0)continue;
+  const h=terrainHeight(x,z), base=h+1;
+  if(base+5>=H)continue;
+  for(let y=base;y<base+4;y++)blocks[idx(x,y,z)]=5;
+  for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)
+    for(let dy=2;dy<=4;dy++)
+      if(Math.abs(dx)+Math.abs(dz)+dy<7 && inside(x+dx,base+dy,z+dz))
+        blocks[idx(x+dx,base+dy,z+dz)]=6;
+}
+
+// One mesh containing exposed faces only.
+// This is much lighter than rendering a separate cube for every block.
+const positions=[], normals=[], colors=[], uvs=[], indices=[];
+let vert=0;
+
+const face=[
+  {n:[1,0,0], c:[[1,-1,-1],[1,1,-1],[1,1,1],[1,-1,1]]},
+  {n:[-1,0,0],c:[[-1,-1,1],[-1,1,1],[-1,1,-1],[-1,-1,-1]]},
+  {n:[0,1,0], c:[[-1,1,1],[1,1,1],[1,1,-1],[-1,1,-1]]},
+  {n:[0,-1,0],c:[[-1,-1,-1],[1,-1,-1],[1,-1,1],[-1,-1,1]]},
+  {n:[0,0,1], c:[[1,-1,1],[1,1,1],[-1,1,1],[-1,-1,1]]},
+  {n:[0,0,-1],c:[[-1,-1,-1],[-1,1,-1],[1,1,-1],[1,-1,-1]]}
+];
+
+function addFace(x,y,z,t,f){
+  const col=TYPES[t-1].c;
+  const shade=f===2?1.12:(f===3?.72:(f===0||f===1?.88:1));
+  for(const p of face[f].c){
+    positions.push(x+.5+p[0],y+.5+p[1],z+.5+p[2]);
+    normals.push(...face[f].n);
+    colors.push(col[0]*shade,col[1]*shade,col[2]*shade);
+    uvs.push(p[0],p[1]);
+  }
+  indices.push(vert,vert+1,vert+2,vert,vert+2,vert+3);
+  vert+=4;
+}
+
+function buildMesh(){
+  for(let x=0;x<SIZE;x++)for(let y=0;y<H;y++)for(let z=0;z<SIZE;z++){
+    const t=get(x,y,z); if(!t)continue;
+    for(let f=0;f<6;f++){
+      const n=face[f].n;
+      if(!get(x+n[0],y+n[1],z+n[2])) addFace(x,y,z,t,f);
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute("position",new THREE.Float32BufferAttribute(positions,3));
+  g.setAttribute("normal",new THREE.Float32BufferAttribute(normals,3));
+  g.setAttribute("color",new THREE.Float32BufferAttribute(colors,3));
+  g.setIndex(indices);
+  const m=new THREE.MeshLambertMaterial({vertexColors:true});
+  const mesh=new THREE.Mesh(g,m);
+  mesh.frustumCulled=false;
+  scene.add(mesh);
+  return mesh;
+}
+let worldMesh=buildMesh();
+
+// Simple water plane.
+const water=new THREE.Mesh(
+  new THREE.PlaneGeometry(500,500),
+  new THREE.MeshBasicMaterial({color:0x2698d0,transparent:true,opacity:.28})
+);
+water.rotation.x=-Math.PI/2;water.position.y=7;scene.add(water);
+
+const bar=document.querySelector("#bar");
+let selected=0;
+TYPES.forEach((t,i)=>{
+  const e=document.createElement("div");
+  e.className="slot"+(i===0?" sel":"");
+  e.textContent=(i+1)+" "+t.n;
+  e.onclick=()=>select(i);
+  bar.appendChild(e);
+});
+function select(i){
+  selected=i;
+  [...bar.children].forEach((e,j)=>e.classList.toggle("sel",i===j));
+}
+addEventListener("keydown",e=>{if(e.key>="1"&&e.key<="9")select(+e.key-1)});
+
+let joyX=0,joyY=0;
+const joy=document.querySelector("#joy"),stick=document.querySelector("#stick");
+function joySet(t){
+  const r=joy.getBoundingClientRect(),dx=t.clientX-(r.left+56),dy=t.clientY-(r.top+56);
+  let x=dx/43,y=dy/43,l=Math.hypot(x,y);
+  if(l>1){x/=l;y/=l}
+  joyX=x;joyY=y;
+  stick.style.left=(30+x*31)+"px";stick.style.top=(30+y*31)+"px";
+}
+joy.ontouchstart=e=>{joySet(e.touches[0]);e.preventDefault()};
+joy.ontouchmove=e=>{joySet(e.touches[0]);e.preventDefault()};
+joy.ontouchend=()=>{joyX=joyY=0;stick.style.left="30px";stick.style.top="30px"};
+
+let looking=false,lx=0,ly=0,yaw=0,pitch=0;
+addEventListener("touchstart",e=>{
+  if(e.target.closest("#joy,#buttons,#bar,#start"))return;
+  const t=e.touches[0];looking=true;lx=t.clientX;ly=t.clientY;
+});
+addEventListener("touchmove",e=>{
+  if(!looking)return;
+  const t=e.touches[0];
+  yaw-=(t.clientX-lx)*.004;
+  pitch-=(t.clientY-ly)*.004;
+  pitch=Math.max(-1.45,Math.min(1.45,pitch));
+  lx=t.clientX;ly=t.clientY;
+  camera.rotation.y=yaw;camera.rotation.x=pitch;
+  e.preventDefault();
+},{passive:false});
+addEventListener("touchend",()=>looking=false);
+
+let up=false,down=false;
+const upB=document.querySelector("#up"),downB=document.querySelector("#down");
+upB.onpointerdown=()=>up=true;upB.onpointerup=()=>up=false;upB.onpointercancel=()=>up=false;
+downB.onpointerdown=()=>down=true;downB.onpointerup=()=>down=false;downB.onpointercancel=()=>down=false;
+
+const ray=new THREE.Raycaster();
+function hit(){
+  ray.setFromCamera(new THREE.Vector2(0,0),camera);
+  return ray.intersectObject(worldMesh,false)[0];
+}
+function rebuild(){
+  scene.remove(worldMesh);
+  worldMesh.geometry.dispose();
+  worldMesh.material.dispose();
+  positions.length=0;normals.length=0;colors.length=0;uvs.length=0;indices.length=0;vert=0;
+  worldMesh=buildMesh();
+}
+function edit(mode){
+  const h=hit(); if(!h)return;
+  const p=h.point.clone(),n=h.face.normal.clone();
+  // Find the voxel nearest the hit surface.
+  const q=p.clone().addScaledVector(n,mode==="break"?-0.01:0.51);
+  const x=Math.floor(q.x+HALF),y=Math.floor(q.y),z=Math.floor(q.z+HALF);
+  if(!inside(x,y,z))return;
+  if(mode==="break"){
+    blocks[idx(x,y,z)]=0;
+  }else{
+    const q2=p.clone().addScaledVector(n,0.51);
+    const xx=Math.floor(q2.x+HALF),yy=Math.floor(q2.y),zz=Math.floor(q2.z+HALF);
+    if(inside(xx,yy,zz)&&!get(xx,yy,zz))blocks[idx(xx,yy,zz)]=selected+1;
+  }
+  rebuild();
+}
+document.querySelector("#break").onclick=()=>edit("break");
+document.querySelector("#place").onclick=()=>edit("place");
+document.querySelector("#go").onclick=()=>document.querySelector("#start").remove();
+
+let last=performance.now(),frames=0,acc=0;
+function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min(.033,(now-last)/1000);last=now;
+
+  const forward=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
+  const right=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
+  camera.position.addScaledVector(forward,-joyY*20*dt);
+  camera.position.addScaledVector(right,joyX*20*dt);
+  if(up)camera.position.y+=18*dt;
+  if(down)camera.position.y-=18*dt;
+  camera.position.y=Math.max(1.5,Math.min(55,camera.position.y));
+
+  renderer.render(scene,camera);
+
+  frames++;acc+=dt;
+  if(acc>.5){
+    document.querySelector("#fps").textContent=Math.round(frames/acc);
+    frames=0;acc=0;
+  }
+}
+requestAnimationFrame(loop);
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight,false);
+});
+</script>
+</body></html>
